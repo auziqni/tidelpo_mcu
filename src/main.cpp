@@ -3,21 +3,28 @@
 #include <MPU6050_light.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
 
 // pin define
 int currentsens_pin = 12;
 int voltagesens_pin = 13;
 int soil_pin = 15; // 2
+static const int RXPin = 36, TXPin = 39;
 
 // define
 #define BMP280_I2C_ADDRESS 0x76
 Adafruit_BMP280 bmp280;
 MPU6050 mpu(Wire);
+static const uint32_t GPSBaud = 9600;
+TinyGPSPlus gps;
+SoftwareSerial ss(RXPin, TXPin);
 
 // global var
 unsigned long lastmillis = 0;
 float angleX, angleY, angleZ;
 float temperature, pressure, altitude;
+float latitude, longitude;
 float current, voltage, soil;
 
 bool updatedata = false, showmonitor = false;
@@ -34,6 +41,7 @@ void setupMPU()
 
   if (status != 0)
   {
+    // Serial.println(F("MPU6050 connection failed. Please check your connection with `connection_check` example."));
     throwerror = +1;
     errordetil += "\nMPU6050 error ";
   }
@@ -58,12 +66,24 @@ void setupBMP()
   Serial.println("Found BMP280 sensor!");
 }
 
+void setupGPS()
+{
+  ss.begin(GPSBaud);
+  if (millis() > 1000 && gps.charsProcessed() < 10)
+  {
+    // Serial.println(F("No GPS data received: check wiring"));
+    throwerror = +1;
+    errordetil += "\nGPS error ";
+  }
+}
+
 void setup()
 {
   Serial.begin(115200);
   pinMode(currentsens_pin, INPUT);
   pinMode(voltagesens_pin, INPUT);
   pinMode(soil_pin, INPUT);
+  setupGPS();
   setupMPU();
   setupBMP();
 }
@@ -71,6 +91,18 @@ void setup()
 void getSens()
 {
   mpu.update();
+  while (ss.available() > 0)
+  {
+    byte gpsData = ss.read();
+    // Serial.write(gpsData);
+
+    gps.encode(gpsData);
+    if (gps.location.isValid())
+    {
+      latitude = gps.location.lat();
+      longitude = gps.location.lng();
+    }
+  }
 
   if (updatedata)
   {
@@ -110,28 +142,44 @@ void monitorSerial()
   {
     Serial.print("Sudut X =");
     Serial.print(angleX);
+    Serial.print("'");
     Serial.print(", Sudut Y =");
     Serial.print(angleY);
+    Serial.print("'");
     Serial.print(", Sudut Z =");
     Serial.print(angleZ);
+    Serial.print("'");
 
     Serial.print("\n");
 
     Serial.print("pressure = ");
     Serial.print(pressure);
+    Serial.print("Pa");
     Serial.print(", temperature = ");
     Serial.print(temperature);
+    Serial.print("C");
     Serial.print(", altitude = ");
     Serial.print(altitude);
+    Serial.print("m");
+
+    Serial.print("\n");
+
+    Serial.print("latitude = ");
+    Serial.print(latitude, 6);
+    Serial.print(", longitude = ");
+    Serial.print(longitude, 6);
 
     Serial.print("\n");
 
     Serial.print("voltage = ");
     Serial.print(voltage);
+    Serial.print("V");
     Serial.print(", current = ");
     Serial.print(current);
+    Serial.print("A");
     Serial.print(", soil = ");
     Serial.print(soil);
+    Serial.print("%");
     Serial.print("\n");
 
     Serial.println("\n");
