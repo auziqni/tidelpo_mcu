@@ -1,152 +1,154 @@
-#include <Arduino.h>
-#include <WiFi.h>
-#include <Firebase_ESP_Client.h>
+// library
+#include "Wire.h"
+#include <MPU6050_light.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
 
-const char *ssid = "teknisee";
-const char *password = "myteknisee";
+// pin define
+int currentsens_pin = 12;
+int voltagesens_pin = 13;
+int soil_pin = 15; // 2
 
-#include "addons/TokenHelper.h"
-#include "addons/RTDBHelper.h"
+// define
+#define BMP280_I2C_ADDRESS 0x76
+Adafruit_BMP280 bmp280;
+MPU6050 mpu(Wire);
 
-#define API_KEY "AIzaSyCbOkWKCuAbwnj1vVWE9R2cwVaZJcwFfWw"
-#define USER_EMAIL "tidelpo@gmail.com"
-#define USER_PASSWORD "1234567890"
-#define DATABASE_URL "https://tidelpo-default-rtdb.asia-southeast1.firebasedatabase.app/"
+// global var
+unsigned long lastmillis = 0;
+float angleX, angleY, angleZ;
+float temperature, pressure, altitude;
+float current, voltage, soil;
 
-FirebaseData fbdo;
-FirebaseAuth auth;
-FirebaseConfig config;
-String uid;
-String databasePath;
-String getaranTanahPath;
-String kelembapanTanahPath;
-String kemiringanTiangPath;
-String pergeseranTanahPath;
-String latitudePath;
-String longitudePath;
+bool updatedata = false, showmonitor = false;
+int throwerror = 0;
+String errordetil = "list error :";
 
-unsigned long sendDataPrevMillis = 0;
-unsigned long timerDelay = 5000;
-
-void Wificon()
+void setupMPU()
 {
-  while (WiFi.status() != WL_CONNECTED)
+  Wire.begin();
+
+  byte status = mpu.begin();
+  Serial.print(F("MPU6050 status: "));
+  Serial.println(status);
+
+  if (status != 0)
   {
-    delay(500);
-    Serial.print(".");
+    throwerror = +1;
+    errordetil += "\nMPU6050 error ";
   }
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+
+  // setting offset manually
+  mpu.setGyroOffsets(-8.53, 1.56, -0.80); // gyro only
+  mpu.setAccOffsets(0.04, 0.00, 0.14);    // accelero only
 }
 
-void intFirebase()
+void setupBMP()
 {
-  config.api_key = API_KEY;
+  Serial.begin(115200);
 
-  auth.user.email = USER_EMAIL;
-  auth.user.password = USER_PASSWORD;
+  Serial.println(F("Arduino + BMP280"));
 
-  config.database_url = DATABASE_URL;
-
-  Firebase.reconnectWiFi(true);
-  fbdo.setResponseSize(4096);
-  config.token_status_callback = tokenStatusCallback;
-
-  config.max_token_generation_retry = 5;
-  Firebase.begin(&config, &auth);
-
-  Serial.println("Getting User UID");
-  while ((auth.token.uid) == "")
+  if (!bmp280.begin(BMP280_I2C_ADDRESS))
   {
-    Serial.print(" . ");
-    delay(1000);
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    while (1)
+      ;
   }
-
-  uid = auth.token.uid.c_str();
-  Serial.print("User UID: ");
-  Serial.println(uid);
-
-  getaranTanahPath = "/Data/getaranTanah";
-  kelembapanTanahPath = "/Data/kelembapanTanah";
-  pergeseranTanahPath = "/Data/pergeseranTanah";
-  kemiringanTiangPath = "/Data/kemiringanTiang";
-  latitudePath = "/Data/latitude";
-  longitudePath = "/Data/longitude";
-}
-
-void sendFloat(String path, float value)
-{
-  if (Firebase.RTDB.setFloat(&fbdo, path.c_str(), value))
-  {
-    Serial.print("Writing value: ");
-    Serial.print(value);
-    Serial.print(" on the following path: ");
-    Serial.println(path);
-    Serial.println("PASSED");
-    Serial.print("PATH: ");
-    Serial.println(fbdo.dataPath());
-    Serial.print("TYPE: ");
-    Serial.println(fbdo.dataType());
-  }
-  else
-  {
-    Serial.println("FAILED");
-    Serial.print("REASON: ");
-    Serial.println(fbdo.errorReason());
-  }
-}
-
-void kirimFirebase()
-{
-  if (Firebase.ready() && (millis() - sendDataPrevMillis > timerDelay || sendDataPrevMillis == 0))
-  {
-    sendDataPrevMillis = millis();
-
-    // create random float
-    float val_soil = random(0, 100);
-    sendFloat(latitudePath, val_soil / 3);
-    sendFloat(longitudePath, val_soil / 2);
-    sendFloat(kelembapanTanahPath, val_soil);
-  }
+  Serial.println("Found BMP280 sensor!");
 }
 
 void setup()
 {
   Serial.begin(115200);
-
-  WiFi.begin(ssid, password);
-
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    Wificon();
-  }
-  // Print local IP address and start web server
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  intFirebase();
+  pinMode(currentsens_pin, INPUT);
+  pinMode(voltagesens_pin, INPUT);
+  pinMode(soil_pin, INPUT);
+  setupMPU();
+  setupBMP();
 }
+
+void getSens()
+{
+  mpu.update();
+
+  if (updatedata)
+  {
+    // gyro
+    angleX = mpu.getAngleX();
+    angleY = mpu.getAngleY();
+    angleZ = mpu.getAngleZ();
+
+    // bmp
+    temperature = bmp280.readTemperature();
+    pressure = bmp280.readPressure();
+    altitude = bmp280.readAltitude(1013.25);
+
+    // current
+    float raw_val_currentsens = analogRead(currentsens_pin);
+    current = ((raw_val_currentsens - 1241) / 3082) * 5000; // 2.5v 5a min 1v
+    if (current < 0)
+    {
+      current = 0;
+    }
+
+    // voltage
+    float raw_val_voltagesens = analogRead(voltagesens_pin);
+    voltage = (raw_val_voltagesens / 4095) * 25;
+
+    // soil
+    float raw_val_soil = analogRead(soil_pin);
+    soil = ((4095 - raw_val_soil) / 4095) * 100;
+
+    updatedata = false;
+  }
+}
+
+void monitorSerial()
+{
+  if (showmonitor)
+  {
+    Serial.print("Sudut X =");
+    Serial.print(angleX);
+    Serial.print(", Sudut Y =");
+    Serial.print(angleY);
+    Serial.print(", Sudut Z =");
+    Serial.print(angleZ);
+
+    Serial.print("\n");
+
+    Serial.print("pressure = ");
+    Serial.print(pressure);
+    Serial.print(", temperature = ");
+    Serial.print(temperature);
+    Serial.print(", altitude = ");
+    Serial.print(altitude);
+
+    Serial.print("\n");
+
+    Serial.print("voltage = ");
+    Serial.print(voltage);
+    Serial.print(", current = ");
+    Serial.print(current);
+    Serial.print(", soil = ");
+    Serial.print(soil);
+    Serial.print("\n");
+
+    Serial.println("\n");
+
+    showmonitor = false;
+  }
+}
+
 void loop()
 {
-  // reconect
-  if (WiFi.status() != WL_CONNECTED)
+  if (millis() - lastmillis > 1000)
   {
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    Wificon();
+    lastmillis = millis();
+    updatedata = true;
+    showmonitor = true;
   }
 
-  kirimFirebase();
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  delay(1000);
+  getSens();
+  monitorSerial();
 }
