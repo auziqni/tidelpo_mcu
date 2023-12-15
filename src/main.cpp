@@ -1,19 +1,46 @@
-#include <Arduino.h>
+
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
+
+#define BMP280_I2C_ADDRESS 0x76
+
+Adafruit_BMP280 bmp280;
 
 void setup()
 {
-  // initialize digital pin LED_BUILTIN as an output.
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
+  Serial.begin(115200);
+
+  Serial.println(F("Arduino + BMP280"));
+
+  if (!bmp280.begin(BMP280_I2C_ADDRESS))
+  {
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    while (1)
+      ;
+  }
+  Serial.println("Found BMP280 sensor!");
 }
 
-// the loop function runs over and over again forever
 void loop()
 {
-  digitalWrite(LED_BUILTIN, HIGH); // turn the LED on (HIGH is the voltage level)
-  Serial.println("hidup");
-  delay(50);                      // wait for a second
-  digitalWrite(LED_BUILTIN, LOW); // turn the LED off by making the voltage LOW
-  Serial.println("mati");
-  delay(50); // wait for a second
+
+  float temperature = bmp280.readTemperature();
+  float pressure = bmp280.readPressure();
+  float altitude_ = bmp280.readAltitude(1013.25);
+
+  Serial.print("Temperature = ");
+  Serial.print(temperature);
+  Serial.println(" °C");
+
+  Serial.print("Pressure    = ");
+  Serial.print(pressure / 100);
+  Serial.println(" hPa");
+
+  Serial.print("Approx Altitude = ");
+  Serial.print(altitude_);
+  Serial.println(" m");
+
+  Serial.println();
+  delay(2000);
 }
