@@ -44,10 +44,12 @@ String kemiringanTiangPath;
 String pergeseranTanahPath;
 String latitudePath;
 String longitudePath;
+String statusTiangPath;
 
 // global var
 unsigned long lastmillis = 0;
-float angleX, angleY, angleZ;
+String statusTiang = "Normal";
+float angleX, angleY, angleZ, tilt;
 float temperature, pressure, altitude;
 float latitude, longitude;
 float current, voltage, soil;
@@ -102,6 +104,7 @@ void intFirebase()
   kemiringanTiangPath = "/Data/kemiringanTiang";
   latitudePath = "/Data/latitude";
   longitudePath = "/Data/longitude";
+  statusTiangPath = "/Data/statusTiang";
 }
 
 void setupMPU()
@@ -191,6 +194,33 @@ void sendFloat(String name, String path, float value)
   }
 }
 
+void sendString(String name, String path, String value)
+{
+  if (Firebase.RTDB.setString(&fbdo, path.c_str(), value))
+  {
+    Serial.print(name);
+    Serial.println(": PASSED");
+
+    // Serial.print("Writing value: ");
+    // Serial.print(value);
+    // Serial.print(" on the following path: ");
+    // Serial.println(path);
+    // Serial.println("PASSED");
+    // Serial.print("PATH: ");
+    // Serial.println(fbdo.dataPath());
+    // Serial.print("TYPE: ");
+    // Serial.println(fbdo.dataType());
+  }
+  else
+  {
+    Serial.print(name);
+    Serial.println(": FAILED");
+    // Serial.println("FAILED");
+    // Serial.print("REASON: ");
+    // Serial.println(fbdo.errorReason());
+  }
+}
+
 void kirimFirebase()
 {
   if (Firebase.ready() && senddata)
@@ -199,6 +229,7 @@ void kirimFirebase()
     sendFloat("latitude", latitudePath, latitude);
     sendFloat("longitude", longitudePath, longitude);
     sendFloat("soil", kelembapanTanahPath, soil);
+    sendString("statusTiang", statusTiangPath, statusTiang);
 
     senddata = false;
   }
@@ -253,13 +284,41 @@ void getSens()
   }
 }
 
+void process()
+{
+  tilt = (fabs(angleX) > fabs(angleY)) ? fabs(angleX) : fabs(angleY);
+  if (tilt > 5 || soil > 26 || pressure > 34473.8)
+  {
+    statusTiang = "Bahaya";
+    // Serial.println("Bahaya");
+  }
+  else if (tilt > 5 || soil > 26 || pressure > 34473.8)
+  {
+    statusTiang = "Waspada";
+    // Serial.println("Waspada");
+  }
+  else if (tilt > 5 || soil > 26 || pressure > 68947.6)
+  {
+    statusTiang = "Siaga";
+    // Serial.println("Siaga");
+  }
+  else
+  {
+    statusTiang = "Normal";
+    // Serial.println("Normal");
+  }
+}
+
 void monitorSerial()
 {
   if (showmonitor)
   {
     Serial.print("WIFI STATUS =");
     Serial.println(WiFi.status());
+    Serial.print("\n");
 
+    Serial.print(statusTiang);
+    Serial.print("\n");
     Serial.print("Sudut X =");
     Serial.print(angleX);
     Serial.print("'");
@@ -302,9 +361,7 @@ void monitorSerial()
     Serial.print("%");
     Serial.print("\n");
 
-    Serial.println("\n");
-
-    showmonitor = false;
+        showmonitor = false;
   }
 }
 
@@ -320,6 +377,9 @@ void loop()
   }
   // getting data
   getSens();
+
+  // process data
+  process();
 
   // show monitor
   monitorSerial();
