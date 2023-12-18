@@ -5,11 +5,15 @@
 #include <Adafruit_BMP280.h>
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include "addons/TokenHelper.h"
+#include "addons/RTDBHelper.h"
 
 // pin define
-int currentsens_pin = 12;
-int voltagesens_pin = 13;
-int soil_pin = 15; // 2
+int currentsens_pin = 35;
+int voltagesens_pin = 32;
+int soil_pin = 34; // 2
 static const int RXPin = 36, TXPin = 39;
 
 // define
@@ -20,6 +24,27 @@ static const uint32_t GPSBaud = 9600;
 TinyGPSPlus gps;
 SoftwareSerial ss(RXPin, TXPin);
 
+// constant
+const char *ssid = "teknisee";
+const char *password = "myteknisee";
+#define API_KEY "AIzaSyCbOkWKCuAbwnj1vVWE9R2cwVaZJcwFfWw"
+#define USER_EMAIL "tidelpo@gmail.com"
+#define USER_PASSWORD "1234567890"
+#define DATABASE_URL "https://tidelpo-default-rtdb.asia-southeast1.firebasedatabase.app/"
+
+// firebase
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+String uid;
+String databasePath;
+String getaranTanahPath;
+String kelembapanTanahPath;
+String kemiringanTiangPath;
+String pergeseranTanahPath;
+String latitudePath;
+String longitudePath;
+
 // global var
 unsigned long lastmillis = 0;
 float angleX, angleY, angleZ;
@@ -27,9 +52,57 @@ float temperature, pressure, altitude;
 float latitude, longitude;
 float current, voltage, soil;
 
-bool updatedata = false, showmonitor = false;
+bool updatedata = false, showmonitor = false, senddata = false;
 int throwerror = 0;
 String errordetil = "list error :";
+
+void Wificon()
+{
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("");
+    Serial.println("WiFi connected.");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+}
+
+void intFirebase()
+{
+    config.api_key = API_KEY;
+
+    auth.user.email = USER_EMAIL;
+    auth.user.password = USER_PASSWORD;
+
+    config.database_url = DATABASE_URL;
+
+    Firebase.reconnectWiFi(true);
+    fbdo.setResponseSize(4096);
+    config.token_status_callback = tokenStatusCallback;
+
+    config.max_token_generation_retry = 5;
+    Firebase.begin(&config, &auth);
+
+    Serial.println("Getting User UID");
+    while ((auth.token.uid) == "")
+    {
+        Serial.print(" . ");
+        delay(1000);
+    }
+
+    uid = auth.token.uid.c_str();
+    Serial.print("User UID: ");
+    Serial.println(uid);
+
+    getaranTanahPath = "/Data/getaranTanah";
+    kelembapanTanahPath = "/Data/kelembapanTanah";
+    pergeseranTanahPath = "/Data/pergeseranTanah";
+    kemiringanTiangPath = "/Data/kemiringanTiang";
+    latitudePath = "/Data/latitude";
+    longitudePath = "/Data/longitude";
+}
 
 void setupMPU()
 {
@@ -86,6 +159,44 @@ void setup()
     setupGPS();
     setupMPU();
     setupBMP();
+    WiFi.begin(ssid, password);
+    Wificon();
+    intFirebase();
+}
+
+void sendFloat(String path, float value)
+{
+    if (Firebase.RTDB.setFloat(&fbdo, path.c_str(), value))
+    {
+        Serial.print("Writing value: ");
+        Serial.print(value);
+        Serial.print(" on the following path: ");
+        Serial.println(path);
+        Serial.println("PASSED");
+        Serial.print("PATH: ");
+        Serial.println(fbdo.dataPath());
+        Serial.print("TYPE: ");
+        Serial.println(fbdo.dataType());
+    }
+    else
+    {
+        Serial.println("FAILED");
+        Serial.print("REASON: ");
+        Serial.println(fbdo.errorReason());
+    }
+}
+
+void kirimFirebase()
+{
+    if (Firebase.ready() && senddata)
+    {
+        // create random float
+        sendFloat(latitudePath, latitude);
+        sendFloat(longitudePath, longitude);
+        sendFloat(kelembapanTanahPath, soil);
+
+        senddata = false;
+    }
 }
 
 void getSens()
@@ -140,6 +251,9 @@ void monitorSerial()
 {
     if (showmonitor)
     {
+        Serial.print("WIFI STATUS =");
+        Serial.println(WiFi.status());
+
         Serial.print("Sudut X =");
         Serial.print(angleX);
         Serial.print("'");
@@ -190,11 +304,25 @@ void monitorSerial()
 
 void loop()
 {
+    // timer
     if (millis() - lastmillis > 1000)
     {
         lastmillis = millis();
         updatedata = true;
         showmonitor = true;
+        senddata = true;
+    }
+
+    // check wifi
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        kirimFirebase();
+    }
+    else
+    {
+        Serial.print("Connecting to ");
+        Serial.println(ssid);
+        Wificon();
     }
 
     getSens();
