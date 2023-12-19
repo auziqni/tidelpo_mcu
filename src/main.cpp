@@ -14,7 +14,7 @@
 int currentsens_pin = 35;
 int voltagesens_pin = 32;
 int soil_pin = 34; // 2
-static const int RXPin = 36, TXPin = 39;
+static const int RXPin = 36, TXPin = 39; // pin gps
 
 // define
 #define BMP280_I2C_ADDRESS 0x76
@@ -229,6 +229,7 @@ void kirimFirebase()
     sendFloat("latitude", latitudePath, latitude);
     sendFloat("longitude", longitudePath, longitude);
     sendFloat("soil", kelembapanTanahPath, soil);
+    sendFloat("kemiringan", kemiringanTiangPath, tilt);
     sendString("statusTiang", statusTiangPath, statusTiang);
 
     senddata = false;
@@ -287,17 +288,17 @@ void getSens()
 void process()
 {
   tilt = (fabs(angleX) > fabs(angleY)) ? fabs(angleX) : fabs(angleY);
-  if (tilt > 5 || soil > 26 || pressure > 34473.8)
+  if (tilt > 15 || soil > 80 || pressure < 34473.8)
   {
     statusTiang = "Bahaya";
     // Serial.println("Bahaya");
   }
-  else if (tilt > 5 || soil > 26 || pressure > 34473.8)
+  else if (tilt > 10 || soil > 50 || pressure < 55158.1)
   {
     statusTiang = "Waspada";
     // Serial.println("Waspada");
   }
-  else if (tilt > 5 || soil > 26 || pressure > 68947.6)
+  else if (tilt > 5 || soil > 26 || pressure < 68947.6)
   {
     statusTiang = "Siaga";
     // Serial.println("Siaga");
@@ -361,7 +362,7 @@ void monitorSerial()
     Serial.print("%");
     Serial.print("\n");
 
-        showmonitor = false;
+    showmonitor = false;
   }
 }
 
