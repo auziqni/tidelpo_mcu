@@ -13,7 +13,7 @@
 // pin define
 int currentsens_pin = 35;
 int voltagesens_pin = 32;
-int soil_pin = 34; // 2
+int soil_pin = 34;                       // 2
 static const int RXPin = 36, TXPin = 39; // pin gps
 
 // define
@@ -38,10 +38,8 @@ FirebaseAuth auth;
 FirebaseConfig config;
 String uid;
 String databasePath;
-String getaranTanahPath;
 String kelembapanTanahPath;
 String kemiringanTiangPath;
-String pergeseranTanahPath;
 String latitudePath;
 String longitudePath;
 String statusTiangPath;
@@ -98,9 +96,7 @@ void intFirebase()
   Serial.print("User UID: ");
   Serial.println(uid);
 
-  getaranTanahPath = "/Data/getaranTanah";
   kelembapanTanahPath = "/Data/kelembapanTanah";
-  pergeseranTanahPath = "/Data/pergeseranTanah";
   kemiringanTiangPath = "/Data/kemiringanTiang";
   latitudePath = "/Data/latitude";
   longitudePath = "/Data/longitude";
@@ -287,7 +283,8 @@ void getSens()
 
 void process()
 {
-  tilt = (fabs(angleX) > fabs(angleY)) ? fabs(angleX) : fabs(angleY);
+  tilt = sqrtf(powf(angleX, 2) + powf(angleY, 2) + powf(angleZ, 2));
+
   if (tilt > 15 || soil > 80 || pressure < 34473.8)
   {
     statusTiang = "Bahaya";
