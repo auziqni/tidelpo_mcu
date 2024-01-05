@@ -285,17 +285,17 @@ void process()
 {
   tilt = sqrtf(powf(angleX, 2) + powf(angleY, 2) + powf(angleZ, 2));
 
-  if (tilt > 15 || soil > 80 || pressure < 34473.8)
+  if (tilt > 15 || pressure > 55158.1)
   {
     statusTiang = "Bahaya";
     // Serial.println("Bahaya");
   }
-  else if (tilt > 10 || soil > 50 || pressure < 55158.1)
+  else if (tilt > 10 || pressure < 55158.1)
   {
     statusTiang = "Waspada";
     // Serial.println("Waspada");
   }
-  else if (tilt > 5 || soil > 26 || pressure < 68947.6)
+  else if (tilt < 10 || pressure > 55158.1)
   {
     statusTiang = "Siaga";
     // Serial.println("Siaga");

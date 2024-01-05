@@ -13,8 +13,8 @@
 // pin define
 int currentsens_pin = 35;
 int voltagesens_pin = 32;
-int soil_pin = 34; // 2
-static const int RXPin = 36, TXPin = 39;
+int soil_pin = 34;                       // 2
+static const int RXPin = 36, TXPin = 39; // pin gps
 
 // define
 #define BMP280_I2C_ADDRESS 0x76
@@ -38,16 +38,16 @@ FirebaseAuth auth;
 FirebaseConfig config;
 String uid;
 String databasePath;
-String getaranTanahPath;
 String kelembapanTanahPath;
 String kemiringanTiangPath;
-String pergeseranTanahPath;
 String latitudePath;
 String longitudePath;
+String statusTiangPath;
 
 // global var
 unsigned long lastmillis = 0;
-float angleX, angleY, angleZ;
+String statusTiang = "Normal";
+float angleX, angleY, angleZ, tilt;
 float temperature, pressure, altitude;
 float latitude, longitude;
 float current, voltage, soil;
@@ -96,12 +96,11 @@ void intFirebase()
     Serial.print("User UID: ");
     Serial.println(uid);
 
-    getaranTanahPath = "/Data/getaranTanah";
     kelembapanTanahPath = "/Data/kelembapanTanah";
-    pergeseranTanahPath = "/Data/pergeseranTanah";
     kemiringanTiangPath = "/Data/kemiringanTiang";
     latitudePath = "/Data/latitude";
     longitudePath = "/Data/longitude";
+    statusTiangPath = "/Data/statusTiang";
 }
 
 void setupMPU()
@@ -164,25 +163,57 @@ void setup()
     intFirebase();
 }
 
-void sendFloat(String path, float value)
+void sendFloat(String name, String path, float value)
 {
     if (Firebase.RTDB.setFloat(&fbdo, path.c_str(), value))
     {
-        Serial.print("Writing value: ");
-        Serial.print(value);
-        Serial.print(" on the following path: ");
-        Serial.println(path);
-        Serial.println("PASSED");
-        Serial.print("PATH: ");
-        Serial.println(fbdo.dataPath());
-        Serial.print("TYPE: ");
-        Serial.println(fbdo.dataType());
+        Serial.print(name);
+        Serial.println(": PASSED");
+
+        // Serial.print("Writing value: ");
+        // Serial.print(value);
+        // Serial.print(" on the following path: ");
+        // Serial.println(path);
+        // Serial.println("PASSED");
+        // Serial.print("PATH: ");
+        // Serial.println(fbdo.dataPath());
+        // Serial.print("TYPE: ");
+        // Serial.println(fbdo.dataType());
     }
     else
     {
-        Serial.println("FAILED");
-        Serial.print("REASON: ");
-        Serial.println(fbdo.errorReason());
+        Serial.print(name);
+        Serial.println(": FAILED");
+        // Serial.println("FAILED");
+        // Serial.print("REASON: ");
+        // Serial.println(fbdo.errorReason());
+    }
+}
+
+void sendString(String name, String path, String value)
+{
+    if (Firebase.RTDB.setString(&fbdo, path.c_str(), value))
+    {
+        Serial.print(name);
+        Serial.println(": PASSED");
+
+        // Serial.print("Writing value: ");
+        // Serial.print(value);
+        // Serial.print(" on the following path: ");
+        // Serial.println(path);
+        // Serial.println("PASSED");
+        // Serial.print("PATH: ");
+        // Serial.println(fbdo.dataPath());
+        // Serial.print("TYPE: ");
+        // Serial.println(fbdo.dataType());
+    }
+    else
+    {
+        Serial.print(name);
+        Serial.println(": FAILED");
+        // Serial.println("FAILED");
+        // Serial.print("REASON: ");
+        // Serial.println(fbdo.errorReason());
     }
 }
 
@@ -191,9 +222,11 @@ void kirimFirebase()
     if (Firebase.ready() && senddata)
     {
         // create random float
-        sendFloat(latitudePath, latitude);
-        sendFloat(longitudePath, longitude);
-        sendFloat(kelembapanTanahPath, soil);
+        sendFloat("latitude", latitudePath, latitude);
+        sendFloat("longitude", longitudePath, longitude);
+        sendFloat("soil", kelembapanTanahPath, soil);
+        sendFloat("kemiringan", kemiringanTiangPath, tilt);
+        sendString("statusTiang", statusTiangPath, statusTiang);
 
         senddata = false;
     }
@@ -237,7 +270,8 @@ void getSens()
 
         // voltage
         float raw_val_voltagesens = analogRead(voltagesens_pin);
-        voltage = (raw_val_voltagesens / 4095) * 25;
+        voltage = (raw_val_voltagesens / 4095) * 14.3;
+        // voltage = raw_val_voltagesens;
 
         // soil
         float raw_val_soil = analogRead(soil_pin);
@@ -247,13 +281,42 @@ void getSens()
     }
 }
 
+void process()
+{
+    tilt = sqrtf(powf(angleX, 2) + powf(angleY, 2) + powf(angleZ, 2));
+
+    if (tilt > 15 || soil > 80 || pressure < 34473.8)
+    {
+        statusTiang = "Bahaya";
+        // Serial.println("Bahaya");
+    }
+    else if (tilt > 10 || soil > 50 || pressure < 55158.1)
+    {
+        statusTiang = "Waspada";
+        // Serial.println("Waspada");
+    }
+    else if (tilt > 5 || soil > 26 || pressure < 68947.6)
+    {
+        statusTiang = "Siaga";
+        // Serial.println("Siaga");
+    }
+    else
+    {
+        statusTiang = "Normal";
+        // Serial.println("Normal");
+    }
+}
+
 void monitorSerial()
 {
     if (showmonitor)
     {
         Serial.print("WIFI STATUS =");
         Serial.println(WiFi.status());
+        Serial.print("\n");
 
+        Serial.print(statusTiang);
+        Serial.print("\n");
         Serial.print("Sudut X =");
         Serial.print(angleX);
         Serial.print("'");
@@ -296,8 +359,6 @@ void monitorSerial()
         Serial.print("%");
         Serial.print("\n");
 
-        Serial.println("\n");
-
         showmonitor = false;
     }
 }
@@ -312,8 +373,16 @@ void loop()
         showmonitor = true;
         senddata = true;
     }
+    // getting data
+    getSens();
 
-    // check wifi
+    // process data
+    process();
+
+    // show monitor
+    monitorSerial();
+
+    // check wifi and push data
     if (WiFi.status() == WL_CONNECTED)
     {
         kirimFirebase();
@@ -324,7 +393,4 @@ void loop()
         Serial.println(ssid);
         Wificon();
     }
-
-    getSens();
-    monitorSerial();
 }
