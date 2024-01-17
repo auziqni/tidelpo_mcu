@@ -311,6 +311,7 @@ void monitorSerial()
 {
   if (showmonitor)
   {
+    Serial.print(tilt);
     Serial.print("WIFI STATUS =");
     Serial.println(WiFi.status());
     Serial.print("\n");
