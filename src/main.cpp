@@ -1,134 +1,145 @@
-// library
+// library utama
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// library MPU6050_light (angel sensor)
 #include "Wire.h"
 #include <MPU6050_light.h>
+
+// library BMP280 (barometer sensor)
+// -----#include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
+
+// library TinyGPS++ (location sensor)
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
-#include <WiFi.h>
-#include <Firebase_ESP_Client.h>
-#include "addons/TokenHelper.h"
-#include "addons/RTDBHelper.h"
 
-// pin define
-int currentsens_pin = 35;
-int voltagesens_pin = 32;
-int soil_pin = 34;                       // 2
-static const int RXPin = 36, TXPin = 39; // pin gps
+// static global varilale utama
+const char *deviceCode = "1xmmtha";
+const char *ssid = "teknisee";
+const char *password = "myteknisee";
 
-// define
+// global varilale utama
+unsigned long lastmillis = 0;
+float angelx, angely, angelz;
+float temperature, pressure, altitude;
+float valCurrent, raw_val_currentsens;
+float latitude, longitude;
+float valSoil, raw_val_soil;
+float valVoltage, raw_val_voltagesens;
+
+// global variable MPU6050_light (angel sensor)
+MPU6050 mpu(Wire);
+
+// global variable BMP280 (barometer sensor)
 #define BMP280_I2C_ADDRESS 0x76
 Adafruit_BMP280 bmp280;
-MPU6050 mpu(Wire);
+
+// global variable current sensor
+int currentsens_pin = 35;
+
+// global variable TinyGPS++ (location sensor)
+static const int RXPin = 36, TXPin = 39;
 static const uint32_t GPSBaud = 9600;
 TinyGPSPlus gps;
 SoftwareSerial ss(RXPin, TXPin);
+bool gpsError = false;
+bool gpsReady = false;
 
-// constant
-const char *ssid = "teknisee";
-const char *password = "myteknisee";
-#define API_KEY "AIzaSyCbOkWKCuAbwnj1vVWE9R2cwVaZJcwFfWw"
-#define USER_EMAIL "tidelpo@gmail.com"
-#define USER_PASSWORD "1234567890"
-#define DATABASE_URL "https://tidelpo-default-rtdb.asia-southeast1.firebasedatabase.app/"
+// global variable soil sensor
+int soil_pin = 34;
 
-// firebase
-FirebaseData fbdo;
-FirebaseAuth auth;
-FirebaseConfig config;
-String uid;
-String databasePath;
-String kelembapanTanahPath;
-String kemiringanTiangPath;
-String latitudePath;
-String longitudePath;
-String statusTiangPath;
+// global variable voltage sensor
+int voltagesens_pin = 32;
 
-// global var
-unsigned long lastmillis = 0;
-String statusTiang = "Normal";
-float angleX, angleY, angleZ, tilt;
-float temperature, pressure, altitude;
-float latitude, longitude;
-float current, voltage, soil;
-
-bool updatedata = false, showmonitor = false, senddata = false;
-int throwerror = 0;
-String errordetil = "list error :";
-
-void Wificon()
+// fungsi dari komponen
+//-----------------------------------------------------------------------------------------------
+void init_wifi()
 {
-  while (WiFi.status() != WL_CONNECTED)
+  WiFi.begin(ssid, password);
+
+  if (WiFi.status() != WL_CONNECTED)
   {
-    delay(500);
-    Serial.print(".");
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      delay(500);
+      Serial.print(".");
+    }
   }
+  // Print local IP address and start web server
   Serial.println("");
   Serial.println("WiFi connected.");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 }
 
-void intFirebase()
+void wifi()
 {
-  config.api_key = API_KEY;
-
-  auth.user.email = USER_EMAIL;
-  auth.user.password = USER_PASSWORD;
-
-  config.database_url = DATABASE_URL;
-
-  Firebase.reconnectWiFi(true);
-  fbdo.setResponseSize(4096);
-  config.token_status_callback = tokenStatusCallback;
-
-  config.max_token_generation_retry = 5;
-  Firebase.begin(&config, &auth);
-
-  Serial.println("Getting User UID");
-  while ((auth.token.uid) == "")
+  if (WiFi.status() != WL_CONNECTED)
   {
-    Serial.print(" . ");
-    delay(1000);
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      delay(500);
+      Serial.print(".");
+    }
   }
-
-  uid = auth.token.uid.c_str();
-  Serial.print("User UID: ");
-  Serial.println(uid);
-
-  kelembapanTanahPath = "/Data/kelembapanTanah";
-  kemiringanTiangPath = "/Data/kemiringanTiang";
-  latitudePath = "/Data/latitude";
-  longitudePath = "/Data/longitude";
-  statusTiangPath = "/Data/statusTiang";
 }
 
-void setupMPU()
+void init_angelSensor()
 {
   Wire.begin();
 
   byte status = mpu.begin();
   Serial.print(F("MPU6050 status: "));
   Serial.println(status);
-
-  if (status != 0)
+  while (status != 0)
   {
-    // Serial.println(F("MPU6050 connection failed. Please check your connection with `connection_check` example."));
-    throwerror = +1;
-    errordetil += "\nMPU6050 error ";
-  }
+  } // stop everything if could not connect to MPU6050
 
-  // setting offset manually
+  Serial.println(F("Calculating offsets, do not move MPU6050"));
+  delay(1000);
+  // mpu.upsideDownMounting = true; // uncomment this line if the MPU6050 is mounted upside-down
+  // mpu.calcOffsets(); // gyro and accelero
+
   mpu.setGyroOffsets(-8.53, 1.56, -0.80); // gyro only
   mpu.setAccOffsets(0.04, 0.00, 0.14);    // accelero only
+  Serial.println("Done!\n");
+
+  Serial.print("gyro x offsets are: ");
+  Serial.println(mpu.getGyroXoffset());
+  Serial.print("gyro y offsets are: ");
+  Serial.println(mpu.getGyroYoffset());
+  Serial.print("gyro z offsets are: ");
+  Serial.println(mpu.getGyroZoffset());
+  Serial.println("");
+
+  Serial.print("acc x offsets are: ");
+  Serial.println(mpu.getAccXoffset());
+  Serial.print("acc y offsets are: ");
+  Serial.println(mpu.getAccYoffset());
+  Serial.print("acc z offsets are: ");
+  Serial.println(mpu.getAccZoffset());
+  Serial.println("");
+  delay(5000);
 }
 
-void setupBMP()
+void angelSensor()
 {
-  Serial.begin(115200);
+  mpu.update();
+  angelx = mpu.getAngleX();
+  angely = mpu.getAngleY();
+  angelz = mpu.getAngleZ();
+}
 
-  Serial.println(F("Arduino + BMP280"));
-
+void init_barometerSensor()
+{
   if (!bmp280.begin(BMP280_I2C_ADDRESS))
   {
     Serial.println("Could not find a valid BMP280 sensor, check wiring!");
@@ -138,260 +149,236 @@ void setupBMP()
   Serial.println("Found BMP280 sensor!");
 }
 
-void setupGPS()
+void barometerSensor()
+{
+  temperature = bmp280.readTemperature();
+  pressure = bmp280.readPressure() / 100;
+  altitude = bmp280.readAltitude(1013.25);
+}
+
+void init_currentSensor()
+{
+  pinMode(currentsens_pin, INPUT);
+}
+
+void currentSensor()
+{
+  raw_val_currentsens = analogRead(currentsens_pin);
+
+  valCurrent = ((raw_val_currentsens - 1241) / 3082) * 5000; // 2.5v 5a min 1v
+  if (valCurrent < 0)
+  {
+    valCurrent = 0;
+  }
+}
+
+void init_locationSensor()
 {
   ss.begin(GPSBaud);
-  if (millis() > 1000 && gps.charsProcessed() < 10)
-  {
-    // Serial.println(F("No GPS data received: check wiring"));
-    throwerror = +1;
-    errordetil += "\nGPS error ";
-  }
 }
 
-void setup()
+void locationSensor()
 {
-  Serial.begin(115200);
-  pinMode(currentsens_pin, INPUT);
-  pinMode(voltagesens_pin, INPUT);
-  pinMode(soil_pin, INPUT);
-  setupGPS();
-  setupMPU();
-  setupBMP();
-  WiFi.begin(ssid, password);
-  Wificon();
-  intFirebase();
-}
-
-void sendFloat(String name, String path, float value)
-{
-  if (Firebase.RTDB.setFloat(&fbdo, path.c_str(), value))
+  if (gps.charsProcessed() < 10)
   {
-    Serial.print(name);
-    Serial.println(": PASSED");
-
-    // Serial.print("Writing value: ");
-    // Serial.print(value);
-    // Serial.print(" on the following path: ");
-    // Serial.println(path);
-    // Serial.println("PASSED");
-    // Serial.print("PATH: ");
-    // Serial.println(fbdo.dataPath());
-    // Serial.print("TYPE: ");
-    // Serial.println(fbdo.dataType());
+    gpsError = true;
   }
-  else
-  {
-    Serial.print(name);
-    Serial.println(": FAILED");
-    // Serial.println("FAILED");
-    // Serial.print("REASON: ");
-    // Serial.println(fbdo.errorReason());
-  }
-}
 
-void sendString(String name, String path, String value)
-{
-  if (Firebase.RTDB.setString(&fbdo, path.c_str(), value))
-  {
-    Serial.print(name);
-    Serial.println(": PASSED");
-
-    // Serial.print("Writing value: ");
-    // Serial.print(value);
-    // Serial.print(" on the following path: ");
-    // Serial.println(path);
-    // Serial.println("PASSED");
-    // Serial.print("PATH: ");
-    // Serial.println(fbdo.dataPath());
-    // Serial.print("TYPE: ");
-    // Serial.println(fbdo.dataType());
-  }
-  else
-  {
-    Serial.print(name);
-    Serial.println(": FAILED");
-    // Serial.println("FAILED");
-    // Serial.print("REASON: ");
-    // Serial.println(fbdo.errorReason());
-  }
-}
-
-void kirimFirebase()
-{
-  if (Firebase.ready() && senddata)
-  {
-    // create random float
-    sendFloat("latitude", latitudePath, latitude);
-    sendFloat("longitude", longitudePath, longitude);
-    sendFloat("soil", kelembapanTanahPath, soil);
-    sendFloat("kemiringan", kemiringanTiangPath, tilt);
-    sendString("statusTiang", statusTiangPath, statusTiang);
-
-    senddata = false;
-  }
-}
-
-void getSens()
-{
-  mpu.update();
   while (ss.available() > 0)
   {
+    gpsError = false;
     byte gpsData = ss.read();
     // Serial.write(gpsData);
 
     gps.encode(gpsData);
     if (gps.location.isValid())
     {
+      gpsReady = true;
       latitude = gps.location.lat();
       longitude = gps.location.lng();
     }
-  }
-
-  if (updatedata)
-  {
-    // gyro
-    angleX = mpu.getAngleX();
-    angleY = mpu.getAngleY();
-    angleZ = mpu.getAngleZ();
-
-    // bmp
-    temperature = bmp280.readTemperature();
-    pressure = bmp280.readPressure();
-    altitude = bmp280.readAltitude(1013.25);
-
-    // current
-    float raw_val_currentsens = analogRead(currentsens_pin);
-    current = ((raw_val_currentsens - 1241) / 3082) * 5000; // 2.5v 5a min 1v
-    if (current < 0)
+    else
     {
-      current = 0;
+      gpsReady = false;
     }
-
-    // voltage
-    float raw_val_voltagesens = analogRead(voltagesens_pin);
-    voltage = (raw_val_voltagesens / 4095) * 14.3;
-    // voltage = raw_val_voltagesens;
-
-    // soil
-    float raw_val_soil = analogRead(soil_pin);
-    soil = ((4095 - raw_val_soil) / 4095) * 100;
-
-    updatedata = false;
   }
 }
 
-void process()
+void init_soilSensor()
 {
-  tilt = sqrtf(powf(angleX, 2) + powf(angleY, 2) + powf(angleZ, 2));
+  pinMode(soil_pin, INPUT);
+}
 
-  if (tilt > 15 || pressure > 55158.1)
+void soilSensor()
+{
+  raw_val_soil = analogRead(soil_pin);
+
+  valSoil = ((4095 - raw_val_soil) / 4095) * 100;
+}
+
+void init_voltageSensor()
+{
+  pinMode(voltagesens_pin, INPUT);
+}
+
+void voltageSensor()
+{
+  raw_val_voltagesens = analogRead(voltagesens_pin);
+
+  valVoltage = (raw_val_voltagesens / 4095) * 25;
+}
+
+// fungsi pendukung
+//-----------------------------------------------------------------------------------------------
+void monitorSerial()
+{
+  if (gpsError)
   {
-    statusTiang = "Bahaya";
-    // Serial.println("Bahaya");
-  }
-  else if (tilt > 10 || pressure < 55158.1)
-  {
-    statusTiang = "Waspada";
-    // Serial.println("Waspada");
-  }
-  else if (tilt < 10 || pressure > 55158.1)
-  {
-    statusTiang = "Siaga";
-    // Serial.println("Siaga");
+    Serial.println("check gps wiring");
   }
   else
   {
-    statusTiang = "Normal";
-    // Serial.println("Normal");
+    if (gpsReady)
+    {
+      Serial.print("X: ");
+      Serial.print(angelx);
+      Serial.print(" | Y: ");
+      Serial.print(angely);
+      Serial.print(" | Z: ");
+      Serial.println(angelz);
+
+      Serial.print("Temperature = ");
+      Serial.print(temperature);
+      Serial.print(" °C");
+      Serial.print(" | Pressure = ");
+      Serial.print(pressure);
+      Serial.print(" hPa");
+      Serial.print(" | Altitude = ");
+      Serial.print(altitude);
+      Serial.println(" m");
+
+      Serial.print("Latitude = ");
+      Serial.print(latitude, 6);
+      Serial.print(" | Longitude = ");
+      Serial.println(longitude, 6);
+
+      Serial.print("soil raw= ");
+      Serial.print(raw_val_soil);
+      Serial.print(", soil= ");
+      Serial.println(valSoil);
+
+      Serial.print("current raw= ");
+      Serial.print(raw_val_currentsens);
+      Serial.print(", current= ");
+      Serial.println(valCurrent);
+
+      Serial.print("voltage raw= ");
+      Serial.print(raw_val_voltagesens);
+      Serial.print(", voltage= ");
+      Serial.println(valVoltage);
+
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+
+      Serial.println("");
+    }
+    else
+    {
+      Serial.println("device is not ready yet");
+    }
   }
 }
 
-void monitorSerial()
+float getTilt()
 {
-  if (showmonitor)
+  return sqrt(pow(angelx, 2) + pow(angely, 2));
+}
+
+String getStatusTiang()
+{
+  float tilt = getTilt();
+  if (tilt > 15)
   {
-    Serial.print(tilt);
-    Serial.print("WIFI STATUS =");
-    Serial.println(WiFi.status());
-    Serial.print("\n");
-
-    Serial.print(statusTiang);
-    Serial.print("\n");
-    Serial.print("Sudut X =");
-    Serial.print(angleX);
-    Serial.print("'");
-    Serial.print(", Sudut Y =");
-    Serial.print(angleY);
-    Serial.print("'");
-    Serial.print(", Sudut Z =");
-    Serial.print(angleZ);
-    Serial.print("'");
-
-    Serial.print("\n");
-
-    Serial.print("pressure = ");
-    Serial.print(pressure);
-    Serial.print("Pa");
-    Serial.print(", temperature = ");
-    Serial.print(temperature);
-    Serial.print("C");
-    Serial.print(", altitude = ");
-    Serial.print(altitude);
-    Serial.print("m");
-
-    Serial.print("\n");
-
-    Serial.print("latitude = ");
-    Serial.print(latitude, 6);
-    Serial.print(", longitude = ");
-    Serial.print(longitude, 6);
-
-    Serial.print("\n");
-
-    Serial.print("voltage = ");
-    Serial.print(voltage);
-    Serial.print("V");
-    Serial.print(", current = ");
-    Serial.print(current);
-    Serial.print("A");
-    Serial.print(", soil = ");
-    Serial.print(soil);
-    Serial.print("%");
-    Serial.print("\n");
-
-    showmonitor = false;
+    return "bahaya";
   }
+  else if (tilt > 10)
+  {
+    return "waspada";
+  }
+  else
+  {
+    return "aman";
+  }
+}
+
+void kirim2psql()
+{
+  HTTPClient http;
+  http.begin("https://www.tidelpo.my.id/api/poststate");
+  http.addHeader("Content-Type", "application/json");
+
+  StaticJsonDocument<200> doc;
+  doc["deviceCode"] = deviceCode;
+  doc["lat"] = latitude;
+  doc["lng"] = longitude;
+  doc["statusTiang"] = getStatusTiang();
+  doc["sensSoil"] = valSoil;
+  doc["sensPressure"] = pressure;
+  doc["sensTilt"] = getTilt();
+
+  String jsonString;
+  serializeJson(doc, jsonString);
+
+  int httpResponseCode = http.POST(jsonString);
+
+  if (httpResponseCode > 0)
+  {
+    String response = http.getString();
+    Serial.println("HTTP Response code: " + String(httpResponseCode));
+    Serial.println("Response: " + response);
+  }
+  else
+  {
+    Serial.println("Error on HTTP request");
+    Serial.println("HTTP Response code: " + String(httpResponseCode));
+  }
+
+  http.end();
+}
+
+// fungsi utama
+//-----------------------------------------------------------------------------------------------
+void setup()
+{
+  Serial.begin(115200);
+  init_wifi();
+  init_angelSensor();
+  init_barometerSensor();
+  init_currentSensor();
+  init_locationSensor();
+  init_soilSensor();
+  init_voltageSensor();
 }
 
 void loop()
 {
-  // timer
-  if (millis() - lastmillis > 1000)
+  wifi();
+  angelSensor();
+  barometerSensor();
+  currentSensor();
+  locationSensor();
+  soilSensor();
+  voltageSensor();
+
+  // rtos
+  if ((millis() - lastmillis) > 10000)
   {
+    if (gpsReady)
+    {
+      kirim2psql();
+    }
+    //---------------------
+    monitorSerial();
     lastmillis = millis();
-    updatedata = true;
-    showmonitor = true;
-    senddata = true;
-  }
-  // getting data
-  getSens();
-
-  // process data
-  process();
-
-  // show monitor
-  monitorSerial();
-
-  // check wifi and push data
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    kirimFirebase();
-  }
-  else
-  {
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    Wificon();
   }
 }

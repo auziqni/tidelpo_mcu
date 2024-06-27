@@ -1,18 +1,20 @@
-/* Get tilt angles on X and Y, and rotation angle on Z
- * Angles are given in degrees
- *
- * License: MIT
- */
-
+// library utama
+#include <Arduino.h>
+// library MPU6050_light (angel sensor)
 #include "Wire.h"
 #include <MPU6050_light.h>
 
-MPU6050 mpu(Wire);
-unsigned long timer = 0;
+// global varilale utama
+unsigned long lastmillis = 0;
+float angelx, angely, angelz;
 
-void setup()
+// global variable MPU6050_light (angel sensor)
+MPU6050 mpu(Wire);
+
+// fungsi dari komponen
+//-----------------------------------------------------------------------------------------------
+void init_angelSensor()
 {
-    Serial.begin(115200);
     Wire.begin();
 
     byte status = mpu.begin();
@@ -49,18 +51,42 @@ void setup()
     delay(5000);
 }
 
-void loop()
+void angelSensor()
 {
     mpu.update();
+    angelx = mpu.getAngleX();
+    angely = mpu.getAngleY();
+    angelz = mpu.getAngleZ();
+}
 
-    if ((millis() - timer) > 1000)
-    { // print data every 10ms
-        Serial.print("X : ");
-        Serial.print(mpu.getAngleX());
-        Serial.print("\tY : ");
-        Serial.print(mpu.getAngleY());
-        Serial.print("\tZ : ");
-        Serial.println(mpu.getAngleZ());
-        timer = millis();
+// fungsi pendukung
+//-----------------------------------------------------------------------------------------------
+void monitorSerial()
+{
+    Serial.print("X: ");
+    Serial.print(angelx);
+    Serial.print(" | Y: ");
+    Serial.print(angely);
+    Serial.print(" | Z: ");
+    Serial.println(angelz);
+}
+
+// fungsi utama
+//-----------------------------------------------------------------------------------------------
+void setup()
+{
+    Serial.begin(115200);
+    init_angelSensor();
+}
+
+void loop()
+{
+    // rtos
+    if ((millis() - lastmillis) > 1000)
+    {
+        angelSensor();
+        //---------------------
+        monitorSerial();
+        lastmillis = millis();
     }
 }
